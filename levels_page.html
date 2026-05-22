@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Sudoku - Gameplay Matrix</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        :root {
+            --bg: #f8fafc;
+            --card: rgba(255, 255, 255, 0.9);
+            --text: #0f172a;
+            --border: #e2e8f0;
+            --primary: #0ea5e9;
+            --secondary: #0284c7;
+            --primary-light: rgba(14, 165, 233, 0.1);
+            --cell-fixed: #64748b;
+            --cell-placed: #0ea5e9;
+            --cell-error: #ef4444;
+            --cell-bg-error: #fef2f2;
+            --cell-bg-match: #f0fdf4;
+            --cell-bg-highlight: #f1f5f9;
+        }
+
+        body.dark {
+            --bg: #020617;
+            --card: rgba(15, 23, 42, 0.85);
+            --text: #f8fafc;
+            --border: rgba(255, 255, 255, 0.08);
+            --primary: #38bdf8;
+            --secondary: #0284c7;
+            --primary-light: rgba(56, 189, 248, 0.15);
+            --cell-fixed: #94a3b8;
+            --cell-placed: #38bdf8;
+            --cell-bg-error: rgba(239, 68, 68, 0.15);
+            --cell-bg-match: rgba(34, 197, 94, 0.15);
+            --cell-bg-highlight: rgba(255, 255, 255, 0.05);
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            transition: background 0.4s;
+            perspective: 1200px;
+        }
+
+        /* 3D CANVAS BACKGROUND */
+        #canvas3d {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* TOP NAVBAR */
+        .navbar {
+            position: relative;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 40px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .navbar-brand {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .nav-meta-info {
+            font-size: 14px;
+            font-weight: 600;
+            opacity: 0.8;
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 6px 16px;
+            border-radius: 20px;
+        }
+
+        /* CORE GRID LAYOUT split into Game board vs Sidebar */
+        .game-viewport {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 30px;
+            padding: 30px 40px;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            position: relative;
+            z-index: 10;
+        }
+
+        @media (max-width: 1000px) {
+            .game-viewport { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: var(--card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            transform-style: preserve-3d;
+            transition: transform 0.1s ease;
+        }
+
+        /* SUDOKU PLAYFIELD BOARD GRAPHICS */
+        .board-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .board-header {
+            width: 100%;
+            max-width: 460px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            width: 100%;
+            max-width: 460px;
+            aspect-ratio: 1;
+            border: 3px solid var(--text);
+            background: var(--text);
+            gap: 1px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        }
+
+        .sudoku-cell {
+            background: var(--card);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .sudoku-cell input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            text-align: center;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--cell-placed);
+            outline: none;
+        }
+
+        .sudoku-cell input:disabled {
+            color: var(--cell-fixed);
+            cursor: not-allowed;
+        }
+
+        /* 3x3 Block Separation Thick Outlines */
+        .sudoku-grid > div:nth-child(3n) { border-right: 2px solid var(--text); }
+        .sudoku-grid > div:nth-child(9n) { border-right: none; }
+        .sudoku-grid > div:nth-child(n+19):nth-child(-n+27),
+        .sudoku-grid > div:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 2px solid var(--text);
+        }
+
+        /* Cell Structural Utility Modifier States */
+        .sudoku-cell.selected { background: var(--primary-light) !important; }
+        .sudoku-cell.highlighted { background: var(--cell-bg-highlight); }
+        .sudoku-cell.match { background: var(--cell-bg-match) !important; }
+        .sudoku-cell.error { background: var(--cell-bg-error) !important; }
+        .sudoku-cell.error input { color: var(--cell-error) !important; }
+
+        /* TACTILE NUMPAD ELEMENT */
+        .numpad {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            width: 100%;
+            max-width: 460px;
+            margin-top: 20px;
+        }
+
+        .num-btn {
+            padding: 14px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-weight: 700;
+            font-size: 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .num-btn:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* VOICE SPEECH CONTROLLER CONSOLE */
+        .voice-console {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 16px;
+            background: var(--bg);
+            border: 1px dashed var(--border);
+            width: 100%;
+            max-width: 460px;
+            display: none;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .voice-console.active { display: flex; }
+
+        .mic-indicator {
+            width: 12px; height: 12px;
+            background: #ef4444;
+            border-radius: 50%;
+            animation: pulse 1.2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.4; }
+            100% { transform: scale(0.9); opacity: 1; }
+        }
+
+        .voice-transcript {
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.7;
+        }
+
+        /* SIDEBAR DASHBOARD ANALYTICS */
+        .panel-title {
+            font-size: 16px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 15px;
+            opacity: 0.6;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .stat-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .stat-box h5 { font-size: 22px; font-weight: 800; color: var(--primary); }
+        .stat-box p { font-size: 11px; font-weight: 600; text-transform: uppercase; opacity: 0.5; margin-top: 2px; }
+
+        .ach-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 14px;
+            margin-bottom: 10px;
+            transition: opacity 0.3s;
+        }
+
+        .ach-item.locked { opacity: 0.4; }
+        .ach-icon { font-size: 24px; }
+        .ach-meta h6 { font-size: 13px; font-weight: 700; }
+        .ach-meta p { font-size: 11px; opacity: 0.6; }
+
+        .action-link-btn {
+            display: block;
+            width: 100%;
+            text-align: center;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 15px;
+            transition: background 0.2s;
+        }
+
+        .action-link-btn:hover { background: var(--primary-light); color: var(--primary); }
+    </style>
+</head>
+<body class="dark">
+
+    <canvas id="canvas3d"></canvas>
+
+    <nav class="navbar">
+        <a href="main_page.html" class="navbar-brand">◀ Exit to Hub</a>
+        <div class="nav-meta-info" id="sessionPathTrack">Loading Matrix Configuration...</div>
+    </nav>
+
+    <main class="game-viewport">
+        
+        <div class="panel board-container" id="boardPanel">
+            <div class="board-header">
+                <span id="labelLevelDisplay">Level 01</span>
+                <span id="labelTimerDisplay">Time: 00:00</span>
+            </div>
+
+            <div class="sudoku-grid" id="gridElement"></div>
+
+            <div class="numpad">
+                <button class="num-btn" onclick="injectValueViaNumPad(1)">1</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(2)">2</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(3)">3</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(4)">4</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(5)">5</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(6)">6</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(7)">7</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(8)">8</button>
+                <button class="num-btn" onclick="injectValueViaNumPad(9)">9</button>
+                <button class="num-btn" style="background: rgba(239,68,68,0.1); color: #f87171;" onclick="injectValueViaNumPad('')">⌫</button>
+            </div>
+
+            <div class="voice-console" id="voiceConsoleModule">
+                <div class="mic-indicator"></div>
+                <div class="voice-transcript" id="voiceCommandPrompt">Voice Enabled: Say "Cell 1 to 81 Value 1 to 9"</div>
+            </div>
+        </div>
+
+        <div class="panel" id="sidebarPanel">
+            <div class="panel-title">📊 Session Telemetry</div>
+            <div class="stats-grid">
+                <div class="stat-box"><h5 id="statErrors">0</h5><p>Mistakes</p></div>
+                <div class="stat-box"><h5 id="statAccuracy">100%</h5><p>Accuracy</p></div>
+                <div class="stat-box"><h5 id="statInputs">0</h5><p>Total moves</p></div>
+                <div class="stat-box"><h5 id="statVoice">0</h5><p>Voice Triggers</p></div>
+            </div>
+
+            <div class="panel-title">🏆 Target Milestones</div>
+            <div class="ach-list">
+                <div class="ach-item id-locked" id="achSolve">
+                    <span class="ach-icon">⚡</span>
+                    <div class="ach-meta"><h6>Matrix Resolved</h6><p>Successfully verified calculation accuracy map bounds rules.</p></div>
+                </div>
+                <div class="ach-item id-locked" id="achFlawless">
+                    <span class="ach-icon">💎</span>
+                    <div class="ach-meta"><h6>Flawless Logic</h6><p>Complete any puzzle track matrix with 0 error inputs.</p></div>
+                </div>
+                <div class="ach-item id-locked" id="achVocalization">
+                    <span class="ach-icon">🎙️</span>
+                    <div class="ach-meta"><h6>Sonic Cipher</h6><p>Inject data points flawlessly via speech recognition streams.</p></div>
+                </div>
+            </div>
+
+            <button class="action-link-btn" onclick="proceduralRegeneratePlayfield()">🔄 Regenerate Level Puzzle</button>
+        </div>
+
+    </main>
+
+    <script>
+        /* ==========================================================================
+           GAME LOGIC ARCHITECTURE ENGINE STATE
+        ========================================================================== */
+        let gameConfig = {
+            variant: 'normal',
+            difficulty: 'easy',
+            level: 1,
+            selectedCellIdx: null,
+            movesCount: 0,
+            mistakesCount: 0,
+            voiceInputsCount: 0
+        };
+
+        // Complete Base Solution Template Matrix Map Row Segment Array Structs
+        const referenceSolution = [
+            5,3,4, 6,7,8, 9,1,2,
+            6,7,2, 1,9,5, 3,4,8,
+            1,9,8, 3,4,2, 5,6,7,
+            8,5,9, 7,6,1, 4,2,3,
+            4,2,6, 8,5,3, 7,9,1,
+            7,1,3, 9,2,4, 8,5,6,
+            9,6,1, 5,3,7, 2,8,4,
+            2,8,7, 4,1,9, 6,3,5,
+            3,4,5, 2,8,6, 1,7,9
+        ];
+
+        let activeLevelSolutionMap = [];
+        let runningTimerInterval;
+        let runningSecondsClock = 0;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchConfigurationParameters();
+            proceduralRegeneratePlayfield();
+            initializeClockTimer();
+            if (gameConfig.variant === 'voice') { initializeVoiceRecognitionEngine(); }
+        });
+
+        /* ==========================================================================
+           DATA LOADING & LEVEL MAP GENERATION ENGINES
+        ========================================================================== */
+        function fetchConfigurationParameters() {
+            gameConfig.variant = localStorage.getItem("selectedEngineVariant") || "normal";
+            gameConfig.difficulty = localStorage.getItem("selectedDifficultyTrack") || "easy";
+            gameConfig.level = parseInt(localStorage.getItem("selectedLevelIndex")) || 1;
+
+            document.getElementById("sessionPathTrack").textContent = 
+                `${gameConfig.variant.toUpperCase()} MODE ➔ ${gameConfig.difficulty.toUpperCase()} ➔ LEVEL ${gameConfig.level.toString().padStart(2, '0')}`;
+            
+            document.getElementById("labelLevelDisplay").textContent = `Level ${gameConfig.level}`;
+            if (gameConfig.variant === 'voice') {
+                document.getElementById("voiceConsoleModule").classList.add("active");
+            }
+        }
+
+        function proceduralRegeneratePlayfield() {
+            gameConfig.movesCount = 0;
+            gameConfig.mistakesCount = 0;
+            gameConfig.selectedCellIdx = null;
+            recomputeStatisticsDisplay();
+
+            const gridContainer = document.getElementById("gridElement");
+            gridContainer.innerHTML = "";
+
+            // Dynamic difficulty percentage masking configuration constraints
+            let removalProbability = 0.35;
+            if (gameConfig.difficulty === 'medium') removalProbability = 0.55;
+            if (gameConfig.difficulty === 'hard') removalProbability = 0.72;
+
+            // Generate shift variable arrays driven by runtime specific configurations levels parameters
+            let transformShiftSeed = (gameConfig.level * 11) % 9;
+            activeLevelSolutionMap = [];
+
+            for (let idx = 0; idx < 81; idx++) {
+                let solutionMapValueIndex = (idx + transformShiftSeed) % 81;
+                let targetValidCellInt = referenceSolution[solutionMapValueIndex];
+                activeLevelSolutionMap.push(targetValidCellInt);
+
+                const cellBlock = document.createElement("div");
+                cellBlock.className = "sudoku-cell";
+                cellBlock.setAttribute("data-cell-index", idx);
+
+                const inlineInputNode = document.createElement("input");
+                inlineInputNode.type = "text";
+                inlineInputNode.maxLength = 1;
+                inlineInputNode.setAttribute("autocomplete", "off");
+
+                if (Math.random() > removalProbability) {
+                    inlineInputNode.value = targetValidCellInt;
+                    inlineInputNode.disabled = true;
+                } else {
+                    inlineInputNode.oninput = (e) => handleDirectKeyboardInput(e, idx, targetValidCellInt);
+                    cellBlock.onclick = () => focusCellSelectionIndex(idx, inlineInputNode.value);
+                }
+
+                cellBlock.appendChild(inlineInputNode);
+                gridContainer.appendChild(cellBlock);
+            }
+        }
+
+        /* ==========================================================================
+           INTERACTION & INTERACTIVE MUTATION PROTOCOLS
+        ========================================================================== */
+        function focusCellSelectionIndex(index, cellValue) {
+            gameConfig.selectedCellIdx = index;
+            document.querySelectorAll(".sudoku-cell").forEach(c => c.classList.remove("selected", "highlighted"));
+            
+            const cell = document.querySelector(`.sudoku-cell[data-cell-index="${index}"]`);
+            if (cell) cell.classList.add("selected");
+
+            // Structural assistance matching value lookup map visual markers highlights
+            if (cellValue && /^[1-9]$/.test(cellValue)) {
+                document.querySelectorAll(".sudoku-cell").forEach(node => {
+                    const input = node.querySelector("input");
+                    if (input && input.value === cellValue) {
+                        node.classList.add("highlighted");
+                    }
+                });
+            }
+        }
+
+        function handleDirectKeyboardInput(e, cellIndex, correctValue) {
+            let character = e.target.value;
+            const parentCellBlock = document.querySelector(`.sudoku-cell[data-cell-index="${cellIndex}"]`);
+
+            if (!/^[1-9]$/.test(character)) {
+                e.target.value = "";
+                parentCellBlock.className = "sudoku-cell selected";
+                return;
+            }
+
+            processMoveCalculation(cellIndex, parseInt(character), correctValue, parentCellBlock);
+        }
+
+        function injectValueViaNumPad(numString) {
+            if (gameConfig.selectedCellIdx === null) return;
+            
+            const cellBlock = document.querySelector(`.sudoku-cell[data-cell-index="${gameConfig.selectedCellIdx}"]`);
+            const inputNode = cellBlock.querySelector("input");
+            
+            if (inputNode && !inputNode.disabled) {
+                inputNode.value = numString;
+                let correctVal = activeLevelSolutionMap[gameConfig.selectedCellIdx];
+                
+                if (numString === "") {
+                    cellBlock.className = "sudoku-cell selected";
+                } else {
+                    processMoveCalculation(gameConfig.selectedCellIdx, parseInt(numString), correctVal, cellBlock);
+                }
+            }
+        }
+
+        function processMoveCalculation(idx, inputtedValue, expectedValue, elementRef) {
+            gameConfig.movesCount++;
+            
+            if (inputtedValue === expectedValue) {
+                elementRef.className = "sudoku-cell selected match";
+                evaluateCompletionVictoryCheck();
+            } else {
+                elementRef.className = "sudoku-cell selected error";
+                gameConfig.mistakesCount++;
+            }
+            recomputeStatisticsDisplay();
+            focusCellSelectionIndex(idx, inputtedValue.toString());
+        }
+
+        /* ==========================================================================
+           STATISTICS AND VALIDATION CALCULATIONS
+        ========================================================================== */
+        function recomputeStatisticsDisplay() {
+            document.getElementById("statErrors").textContent = gameConfig.mistakesCount;
+            document.getElementById("statInputs").textContent = gameConfig.movesCount;
+            document.getElementById("statVoice").textContent = gameConfig.voiceInputsCount;
+
+            if (gameConfig.movesCount > 0) {
+                let ratio = Math.max(0, Math.floor(((gameConfig.movesCount - gameConfig.mistakesCount) / gameConfig.movesCount) * 100));
+                document.getElementById("statAccuracy").textContent = `${ratio}%`;
+            } else {
+                document.getElementById("statAccuracy").textContent = "100%";
+            }
+        }
+
+        function evaluateCompletionVictoryCheck() {
+            const cellsInputs = document.querySelectorAll("#gridElement input");
+            let winTokenState = true;
+
+            for (let node of cellsInputs) {
+                if (node.value === "" || node.parentElement.classList.contains("error")) {
+                    winTokenState = false;
+                    break;
+                }
+            }
+
+            if (winTokenState) {
+                clearInterval(runningTimerInterval);
+                document.getElementById("achSolve").classList.remove("id-locked");
+                if (gameConfig.mistakesCount === 0) {
+                    document.getElementById("achFlawless").classList.remove("id-locked");
+                }
+                if (gameConfig.variant === 'voice' && gameConfig.voiceInputsCount > 5) {
+                    document.getElementById("achVocalization").classList.remove("id-locked");
+                }
+                alert(`Calculation Matrix Solved! Validation complete in ${runningSecondsClock}s.`);
+            }
+        }
+
+        function initializeClockTimer() {
+            clearInterval(runningTimerInterval);
+            runningSecondsClock = 0;
+            runningTimerInterval = setInterval(() => {
+                runningSecondsClock++;
+                let min = Math.floor(runningSecondsClock / 60).toString().padStart(2, '0');
+                let sec = (runningSecondsClock % 60).toString().padStart(2, '0');
+                document.getElementById("labelTimerDisplay").textContent = `Time: ${min}:${sec}`;
+            }, 1000);
+        }
+
+        /* ==========================================================================
+           VOICE RECOGNITION ACOUSTIC CIPHER PROTOCOLS
+        ========================================================================== */
+        function initializeVoiceRecognitionEngine() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                document.getElementById("voiceCommandPrompt").textContent = "Voice input API support undetected on this platform client.";
+                return;
+            }
+
+            const activeRecognizer = new SpeechRecognition();
+            activeRecognizer.continuous = true;
+            activeRecognizer.interimResults = false;
+            activeRecognizer.lang = 'en-US';
+
+            activeRecognizer.onresult = (e) => {
+                let utteranceString = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+                document.getElementById("voiceCommandPrompt").textContent = `Heard: "${utteranceString}"`;
+                parseAcousticCommandMatrix(utteranceString);
+            };
+
+            activeRecognizer.onerror = () => { try { activeRecognizer.start(); } catch(err){} };
+            activeRecognizer.onend = () => { activeRecognizer.start(); };
+
+            try { activeRecognizer.start(); } catch(e){}
+        }
+
+        function parseAcousticCommandMatrix(str) {
+            // Regex patterns parsing coordinates targets map layout indices: e.g. "cell 24 value 7"
+            const cellExtractionFilter = /(?:cell|target|grid|select)\s+(\d+)/i;
+            const valueExtractionFilter = /(?:value|input|enter|set|number)\s+(\d+)/i;
+
+            let cellMatch = str.match(cellExtractionFilter);
+            let valueMatch = str.match(valueExtractionFilter);
+
+            if (cellMatch) {
+                let cellIdxTarget = parseInt(cellMatch[1]) - 1;
+                if (cellIdxTarget >= 0 && cellIdxTarget < 81) {
+                    gameConfig.voiceInputsCount++;
+                    const block = document.querySelector(`.sudoku-cell[data-cell-index="${cellIdxTarget}"]`);
+                    const field = block.querySelector("input");
+                    focusCellSelectionIndex(cellIdxTarget, field ? field.value : "");
+                }
+            }
+
+            if (valueMatch && gameConfig.selectedCellIdx !== null) {
+                let numberToInject = parseInt(valueMatch[1]);
+                if (numberToInject >= 1 && numberToInject <= 9) {
+                    gameConfig.voiceInputsCount++;
+                    injectValueViaNumPad(numberToInject.toString());
+                }
+            }
+            recomputeStatisticsDisplay();
+        }
+
+        /* ==========================================================================
+           3D ENGINE GRAPHICS BACKGROUND DRAW ENGINE
+        ========================================================================== */
+        const canvas = document.getElementById('canvas3d');
+        const ctx = canvas.getContext('2d');
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        let mouse = { x: width/2, y: height/2, targetX: width/2, targetY: height/2 };
+        let visualBoxes = [];
+
+        function build3DMatrixEnvironment() {
+            visualBoxes = [];
+            for (let i = 0; i < 8; i++) {
+                visualBoxes.push({
+                    x: (Math.random() - 0.5) * width * 0.8,
+                    y: (Math.random() - 0.5) * height * 0.8,
+                    z: (Math.random() - 0.5) * 300,
+                    size: Math.random() * 80 + 60,
+                    rotX: Math.random() * Math.PI,
+                    rotY: Math.random() * Math.PI,
+                    rotSpeedX: (Math.random() - 0.5) * 0.005,
+                    rotSpeedY: (Math.random() - 0.5) * 0.005,
+                    offset: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.targetX = e.clientX;
+            mouse.targetY = e.clientY;
+        });
+
+        function drawWireframeBox3D(b, time) {
+            b.rotX += b.rotSpeedX; b.rotY += b.rotSpeedY;
+            let currentSize = b.size * (1 + Math.sin(time * 0.008 + b.offset) * 0.05);
+
+            let mouseXModifier = (mouse.x - width / 2) * 0.1;
+            let mouseYModifier = (mouse.y - height / 2) * 0.1;
+
+            let points = [
+                {x: -currentSize/2, y: -currentSize/2, z: -currentSize/2},
+                {x: currentSize/2, y: -currentSize/2, z: -currentSize/2},
+                {x: currentSize/2, y: currentSize/2, z: -currentSize/2},
+                {x: -currentSize/2, y: currentSize/2, z: -currentSize/2},
+                {x: -currentSize/2, y: -currentSize/2, z: currentSize/2},
+                {x: currentSize/2, y: -currentSize/2, z: currentSize/2},
+                {x: currentSize/2, y: currentSize/2, z: currentSize/2},
+                {x: -currentSize/2, y: currentSize/2, z: currentSize/2}
+            ];
+
+            let transformed = points.map(v => {
+                let x1 = v.x * Math.cos(b.rotY) - v.z * Math.sin(b.rotY);
+                let z1 = v.x * Math.sin(b.rotY) + v.z * Math.cos(b.rotY);
+                let y2 = v.y * Math.cos(b.rotX) - z1 * Math.sin(b.rotX);
+                let z2 = v.y * Math.sin(b.rotX) + z1 * Math.cos(b.rotX);
+                return {
+                    x: x1 + b.x + mouseXModifier + width/2,
+                    y: y2 + b.y + mouseYModifier + height/2,
+                    scale: 400 / (400 + z2 + b.z)
+                };
+            });
+
+            ctx.strokeStyle = document.body.classList.contains('dark') ? 'rgba(56, 189, 248, 0.05)' : 'rgba(14, 165, 233, 0.05)';
+            ctx.lineWidth = 1;
+            const connects = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+            
+            ctx.beginPath();
+            connects.forEach(c => {
+                let p1 = transformed[c[0]]; let p2 = transformed[c[1]];
+                ctx.moveTo((p1.x - width/2)*p1.scale + width/2, (p1.y - height/2)*p1.scale + height/2);
+                ctx.lineTo((p2.x - width/2)*p2.scale + width/2, (p2.y - height/2)*p2.scale + height/2);
+            });
+            ctx.stroke();
+        }
+
+        function coreBackgroundLoop(time) {
+            ctx.clearRect(0,0,width,height);
+            mouse.x += (mouse.targetX - mouse.x) * 0.08;
+            mouse.y += (mouse.targetY - mouse.y) * 0.08;
+            visualBoxes.forEach(b => drawWireframeBox3D(b, time));
+            requestAnimationFrame(coreBackgroundLoop);
+        }
+
+        build3DMatrixEnvironment();
+        requestAnimationFrame(coreBackgroundLoop);
+
+        /* ==========================================================================
+           TACTILE COMPONENT INTERACTIVE SMOOTH ROTATION PARALLAX
+        ========================================================================== */
+        const panelLeft = document.getElementById('boardPanel');
+        const panelRight = document.getElementById('sidebarPanel');
+        
+        window.addEventListener('mousemove', (e) => {
+            let tiltY = (window.innerWidth / 2 - e.clientX) / 45;
+            let tiltX = (window.innerHeight / 2 - e.clientY) / 45;
+            panelLeft.style.transform = `rotateY(${-tiltY}deg) rotateX(${tiltX}deg)`;
+            panelRight.style.transform = `rotateY(${-tiltY}deg) rotateX(${tiltX}deg)`;
+        });
+    </script>
+</body>
+</html>
